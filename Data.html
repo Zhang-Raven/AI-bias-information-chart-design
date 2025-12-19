@@ -1,0 +1,766 @@
+      
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Soul Style 3D Planet</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Arial', sans-serif;
+            user-select: none; /* 防止双击选中文本 */
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            opacity: 0; /* 初始隐藏，加载完再显示 */
+            transition: opacity 1s ease;
+        }
+
+        /* 顶部菜单栏 */
+        .menu-bar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .menu-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            backdrop-filter: blur(5px);
+            transition: all 0.3s;
+        }
+
+        .menu-btn:hover, .menu-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: white;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        /* 底部提示 */
+        .ui-overlay {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .ui-overlay h1 {
+            font-size: 18px;
+            margin: 0 0 5px 0;
+            letter-spacing: 2px;
+            font-weight: normal;
+        }
+
+        .ui-overlay p {
+            font-size: 12px;
+            margin: 0;
+        }
+
+        /* 加载界面 */
+        #loader {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #050510;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            transition: opacity 0.5s;
+        }
+
+        .loader-text {
+            margin-bottom: 15px;
+            font-size: 16px;
+            letter-spacing: 2px;
+        }
+
+        .progress-bar {
+            width: 200px;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            background: #4488ff;
+            transition: width 0.1s linear;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 加载界面 -->
+    <div id="loader">
+        <div class="loader-text" id="loader-text">连接灵魂网络 0%</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+    </div>
+
+    <!-- 菜单栏 -->
+    <div class="menu-bar">
+        <button class="menu-btn active" onclick="transformShape('sphere')">星球 (Sphere)</button>
+        <button class="menu-btn" onclick="transformShape('grid')">矩阵 (Grid)</button>
+        <button class="menu-btn" onclick="transformShape('helix')">基因 (Helix)</button>
+        <button class="menu-btn" onclick="transformShape('random')">混沌 (Chaos)</button>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div class="ui-overlay">
+        <h1>SOUL UNIVERSE</h1>
+        <p>双击空白处引发“大爆炸” · 点击头像建立连线</p>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 配置参数 ---
+        const CONFIG = {
+            userCount: 125,       
+            radius: 120,          
+            baseSize: 22,         
+            hoverSize: 45,        
+            animSpeed: 0.05,      
+            autoRotateSpeed: 0.6,
+            uniqueImageCount: 30
+        };
+
+        let scene, camera, renderer, controls;
+        let avatars = [];       
+        let raycaster, pointer; 
+        let selectedAvatar = null; 
+        
+        // 新增：连线对象组
+        let connectionsGroup;
+        // 新增：大气层辉光
+        let atmosphereMesh;
+
+        let loadedImages = [];
+
+        const layouts = {
+            sphere: [],
+            grid: [],
+            helix: [],
+            random: []
+        };
+        
+        let currentShape = 'sphere'; 
+
+        // 随机名字库
+        const NAME_PREFIXES = ["Super", "Cyber", "Soul", "Moon", "Star", "Tech", "Cool", "Momo", "Kiki", "Lala", "Neon", "Flux"];
+        const NAME_SUFFIXES = ["Cat", "Boy", "Girl", "Bot", "Fox", "007", "X", "Nova", "Sky", "Pie", "Wave", "Flow"];
+
+        function generateName() {
+            const prefix = NAME_PREFIXES[Math.floor(Math.random() * NAME_PREFIXES.length)];
+            const suffix = NAME_SUFFIXES[Math.floor(Math.random() * NAME_SUFFIXES.length)];
+            let name = prefix + suffix;
+            if (name.length > 10) name = name.substring(0, 10);
+            return name;
+        }
+
+        // --- 音频管理器 ---
+        const SoundManager = {
+            ctx: null,
+
+            init: function() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            },
+
+            playBling: function() {
+                this.init();
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(e => console.log("Audio resume failed"));
+                }
+                const t = this.ctx.currentTime;
+                this.playTone(1200, t, 0.1);
+                this.playTone(1800, t + 0.12, 0.3);
+                this.playTone(2400, t + 0.2, 0.1, 0.02);
+            },
+
+            // 新增：爆炸音效
+            playExplosion: function() {
+                this.init();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const t = this.ctx.currentTime;
+                
+                // 低频轰鸣
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, t);
+                osc.frequency.exponentialRampToValueAtTime(10, t + 1);
+                
+                gain.gain.setValueAtTime(0.3, t);
+                gain.gain.exponentialRampToValueAtTime(0.01, t + 1);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(t);
+                osc.stop(t + 1);
+
+                // 伴随高频扩散
+                this.playTone(800, t, 0.5, 0.1);
+            },
+
+            // 新增：连线音效
+            playLink: function() {
+                 this.init();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const t = this.ctx.currentTime;
+                this.playTone(2000, t, 0.1, 0.05);
+                this.playTone(3000, t+0.05, 0.2, 0.03);
+            },
+
+            playTone: function(freq, time, duration, vol = 0.05) {
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine'; 
+                osc.frequency.setValueAtTime(freq, time);
+                
+                gain.gain.setValueAtTime(0, time);
+                gain.gain.linearRampToValueAtTime(vol, time + 0.02); 
+                gain.gain.exponentialRampToValueAtTime(0.001, time + duration); 
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(time);
+                osc.stop(time + duration);
+            }
+        };
+
+        // --- 资源管理器 ---
+        const AssetManager = {
+            loadAll: async function(count) {
+                const promises = [];
+                const loaderText = document.getElementById('loader-text');
+                const progressFill = document.getElementById('progress-fill');
+                let loadedCount = 0;
+
+                for (let i = 0; i < count; i++) {
+                    const seed = `soul_user_${i}_${Date.now()}`;
+                    const url = `https://api.dicebear.com/9.x/adventurer/png?seed=${seed}&scale=100&backgroundColor=transparent`;
+                    
+                    promises.push(new Promise((resolve) => {
+                        const img = new Image();
+                        img.crossOrigin = "Anonymous";
+                        img.src = url;
+                        img.onload = () => {
+                            loadedCount++;
+                            updateProgress();
+                            resolve(img);
+                        };
+                        img.onerror = () => {
+                            loadedCount++;
+                            updateProgress();
+                            resolve(null);
+                        };
+                    }));
+                }
+
+                function updateProgress() {
+                    const percent = Math.floor((loadedCount / count) * 100);
+                    loaderText.innerText = `正在下载 ${loadedCount}/${count} 个灵魂碎片...`;
+                    progressFill.style.width = `${percent}%`;
+                }
+
+                return Promise.all(promises);
+            }
+        };
+
+        // --- Canvas 绘制 ---
+        function drawAvatarCanvas(name, imageObj, hue) {
+            const size = 256; 
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size; 
+            const ctx = canvas.getContext('2d');
+            const centerX = size / 2;
+            const circleRadius = 80;
+            const circleY = size / 2 + 20; 
+            const textY = 40; 
+
+            ctx.save();
+            ctx.shadowColor = "rgba(0,0,0,0.8)";
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.fillStyle = "white";
+            ctx.font = "bold 32px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(name, centerX, textY);
+            ctx.restore();
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, circleY, circleRadius, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip(); 
+
+            ctx.fillStyle = `hsl(${hue}, 60%, 25%)`;
+            ctx.fill();
+
+            if (imageObj) {
+                ctx.drawImage(imageObj, centerX - circleRadius, circleY - circleRadius, circleRadius * 2, circleRadius * 2);
+            } else {
+                ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.font = "bold 80px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(name.charAt(0), centerX, circleY);
+            }
+            ctx.restore();
+
+            ctx.beginPath();
+            ctx.arc(centerX, circleY, circleRadius, 0, Math.PI * 2);
+            ctx.lineWidth = 8;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.stroke();
+
+            return canvas;
+        }
+
+        // --- 初始化 ---
+        async function init() {
+            SoundManager.init();
+
+            const rawImages = await AssetManager.loadAll(CONFIG.uniqueImageCount);
+            loadedImages = rawImages.filter(img => img !== null);
+            if (loadedImages.length === 0) loadedImages.push(null);
+
+            const loader = document.getElementById('loader');
+            loader.style.opacity = 0;
+            setTimeout(() => loader.style.display = 'none', 500);
+
+            document.getElementById('canvas-container').style.opacity = 1;
+            
+            SoundManager.playBling();
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050510, 0.001);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 3000); // 增加视距防止爆炸飞出去看不见
+            camera.position.set(0, 0, 380);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = CONFIG.autoRotateSpeed;
+
+            raycaster = new THREE.Raycaster();
+            pointer = new THREE.Vector2();
+
+            // 初始化组
+            connectionsGroup = new THREE.Group();
+            scene.add(connectionsGroup);
+
+            preCalculateLayouts(); 
+            createAvatars();       
+            createStars();
+            createCore();
+            createAtmosphere(); // 新增：氛围光
+            
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown);
+            window.addEventListener('dblclick', onDoubleClick); // 新增：双击事件
+
+            animate();
+        }
+
+        function createCore() {
+            const coreGeo = new THREE.IcosahedronGeometry(CONFIG.radius * 0.65, 1);
+            const coreMat = new THREE.MeshBasicMaterial({ 
+                color: 0x4466aa, 
+                wireframe: true, 
+                transparent: true, 
+                opacity: 0.12 
+            });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            scene.add(core);
+        }
+
+        // --- 新增：创建氛围光 ---
+        function createAtmosphere() {
+            const geometry = new THREE.PlaneGeometry(600, 600);
+            
+            // 使用 Canvas 生成一个径向渐变的光晕
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+            gradient.addColorStop(0, 'rgba(50, 80, 200, 0.4)');
+            gradient.addColorStop(0.5, 'rgba(20, 30, 80, 0.1)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 128, 128);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                opacity: 0.6,
+                depthWrite: false, // 不写入深度缓冲区，防止遮挡
+                blending: THREE.AdditiveBlending // 叠加混合模式
+            });
+
+            atmosphereMesh = new THREE.Mesh(geometry, material);
+            scene.add(atmosphereMesh);
+        }
+
+        function preCalculateLayouts() {
+            const phi = Math.PI * (3 - Math.sqrt(5));
+            for (let i = 0; i < CONFIG.userCount; i++) {
+                const y = 1 - (i / (CONFIG.userCount - 1)) * 2;
+                const radiusAtY = Math.sqrt(1 - y * y);
+                const theta = phi * i;
+                const x = Math.cos(theta) * radiusAtY;
+                const z = Math.sin(theta) * radiusAtY;
+                layouts.sphere.push(new THREE.Vector3(x, y, z).multiplyScalar(CONFIG.radius));
+            }
+
+            const gridSize = Math.ceil(Math.pow(CONFIG.userCount, 1/3)); 
+            const spacing = 55; 
+            const offset = (gridSize * spacing) / 2 - (spacing/2);
+            let count = 0;
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        if (count >= CONFIG.userCount) break;
+                        layouts.grid.push(new THREE.Vector3(x * spacing - offset, y * spacing - offset, z * spacing - offset));
+                        count++;
+                    }
+                }
+            }
+
+            for (let i = 0; i < CONFIG.userCount; i++) {
+                const theta = i * 0.25; 
+                const y = - (i * 3) + (CONFIG.userCount * 1.5); 
+                layouts.helix.push(new THREE.Vector3(90 * Math.cos(theta), y, 90 * Math.sin(theta)));
+            }
+
+            for (let i = 0; i < CONFIG.userCount; i++) {
+                layouts.random.push(new THREE.Vector3(
+                    THREE.MathUtils.randFloatSpread(500),
+                    THREE.MathUtils.randFloatSpread(500),
+                    THREE.MathUtils.randFloatSpread(500)
+                ));
+            }
+        }
+
+        function createAvatars() {
+            for (let i = 0; i < CONFIG.userCount; i++) {
+                const name = generateName();
+                const hue = Math.floor(Math.random() * 360);
+                
+                const imgIndex = i % loadedImages.length;
+                const imgObj = loadedImages[imgIndex]; 
+                
+                const canvas = drawAvatarCanvas(name, imgObj, hue);
+                const texture = new THREE.CanvasTexture(canvas);
+                
+                const material = new THREE.SpriteMaterial({
+                    map: texture,
+                    transparent: true,
+                });
+
+                const sprite = new THREE.Sprite(material);
+                
+                sprite.position.copy(layouts.random[i]); 
+                sprite.scale.set(0, 0, 1); 
+
+                sprite.userData = {
+                    id: i,
+                    name: name,
+                    targetPos: layouts.sphere[i].clone(), 
+                    targetScale: CONFIG.baseSize * (0.8 + Math.random() * 0.4),
+                    baseScale: CONFIG.baseSize * (0.8 + Math.random() * 0.4),
+                    floatPhase: Math.random() * Math.PI * 2,
+                    floatSpeed: 0.001 + Math.random() * 0.002,
+                    // 新增：爆炸时的随机速度向量
+                    explosionVelocity: new THREE.Vector3(
+                        Math.random() - 0.5, 
+                        Math.random() - 0.5, 
+                        Math.random() - 0.5
+                    ).normalize().multiplyScalar(5 + Math.random() * 10) 
+                };
+
+                scene.add(sprite);
+                avatars.push(sprite);
+            }
+        }
+
+        // --- 新增：双击大爆炸 ---
+        let isExploding = false;
+        function onDoubleClick(event) {
+            // 防止重复触发
+            if(isExploding) return;
+            
+            isExploding = true;
+            SoundManager.playExplosion();
+
+            // 1. 让所有头像瞬间获得一个巨大的外向速度
+            avatars.forEach(avatar => {
+                // 将位置瞬间设为爆炸起始点（可选，或者直接从当前位置飞）
+                // 为了视觉效果，我们让它们从当前位置直接炸开
+                // 仅仅标记状态，逻辑在 animate 中处理
+            });
+
+            // 2s 后开始缓慢收缩 (重力回归)
+            setTimeout(() => {
+                isExploding = false;
+            }, 2500);
+        }
+
+        function onPointerDown(event) {
+            if (SoundManager.ctx && SoundManager.ctx.state === 'suspended') {
+                SoundManager.ctx.resume();
+            }
+
+            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(pointer, camera);
+            const intersects = raycaster.intersectObjects(avatars);
+
+            if (intersects.length > 0) {
+                const target = intersects[0].object;
+                if (selectedAvatar === target) {
+                    selectedAvatar = null;
+                    clearConnections(); // 清除连线
+                } else {
+                    selectedAvatar = target;
+                    controls.autoRotate = false;
+                    SoundManager.playBling();
+                    SoundManager.playLink(); // 播放连线音效
+                    createConnections(target); // 建立连线
+                }
+            } else {
+                selectedAvatar = null;
+                clearConnections(); // 清除连线
+                controls.autoRotate = true;
+            }
+            updateAvatarScales();
+        }
+
+        // --- 新增：建立灵魂连线 ---
+        function createConnections(centerAvatar) {
+            clearConnections();
+
+            // 随机找 3-5 个目标
+            const count = 3 + Math.floor(Math.random() * 3);
+            const targets = [];
+            for(let i=0; i<count; i++) {
+                const randomIndex = Math.floor(Math.random() * avatars.length);
+                if(avatars[randomIndex] !== centerAvatar) {
+                    targets.push(avatars[randomIndex]);
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            const positions = [];
+            const start = centerAvatar.position;
+
+            targets.forEach(target => {
+                const end = target.position;
+                positions.push(start.x, start.y, start.z);
+                positions.push(end.x, end.y, end.z);
+            });
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            
+            const material = new THREE.LineBasicMaterial({
+                color: 0x4488ff,
+                transparent: true,
+                opacity: 0.6,
+                linewidth: 2 // 注意：WebGL中 linewidth 往往被忽略，始终为1
+            });
+
+            const lines = new THREE.LineSegments(geometry, material);
+            connectionsGroup.add(lines);
+
+            // 让连线的目标也稍微变大一点，表示被连接
+            targets.forEach(t => {
+                t.userData.tempScale = CONFIG.hoverSize * 0.7; // 临时标记
+            });
+        }
+
+        function clearConnections() {
+            // 清除连线
+            while(connectionsGroup.children.length > 0){ 
+                const obj = connectionsGroup.children[0];
+                obj.geometry.dispose(); 
+                obj.material.dispose();
+                connectionsGroup.remove(obj); 
+            }
+            // 恢复被连接者的状态
+            avatars.forEach(a => { delete a.userData.tempScale; });
+        }
+
+        function updateAvatarScales() {
+            avatars.forEach(avatar => {
+                if (avatar === selectedAvatar) {
+                    avatar.userData.targetScale = CONFIG.hoverSize;
+                    avatar.renderOrder = 999; 
+                    avatar.material.color.setHex(0xffffff);
+                } else if (avatar.userData.tempScale) {
+                    // 如果是被连线的对象
+                    avatar.userData.targetScale = avatar.userData.tempScale;
+                    avatar.renderOrder = 998;
+                    avatar.material.color.setHex(0xaaccff);
+                } else {
+                    avatar.userData.targetScale = avatar.userData.baseScale;
+                    avatar.renderOrder = 0;
+                    avatar.material.color.setHex(0xffffff);
+                }
+            });
+        }
+
+        function createStars() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            for (let i = 0; i < 2000; i++) {
+                vertices.push(
+                    THREE.MathUtils.randFloatSpread(2500),
+                    THREE.MathUtils.randFloatSpread(2500),
+                    THREE.MathUtils.randFloatSpread(2500)
+                );
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x8899aa, size: 2, transparent: true, opacity: 0.6 }));
+            scene.add(stars);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            const time = Date.now();
+
+            // 大气层呼吸效果
+            if (atmosphereMesh) {
+                atmosphereMesh.lookAt(camera.position);
+                atmosphereMesh.material.opacity = 0.5 + Math.sin(time * 0.001) * 0.1;
+                const s = 1 + Math.sin(time * 0.0005) * 0.05;
+                atmosphereMesh.scale.set(s, s, 1);
+            }
+
+            // 更新连线位置 (如果正在爆炸，位置会变，线也要跟着变)
+            if (selectedAvatar && connectionsGroup.children.length > 0) {
+                 // 简单做法：这里为了性能，暂不实时更新连线顶点的几何数据
+                 // 因为爆炸时通常会清除选中状态。如果想实时跟随，需要 update Attribute
+            }
+
+            avatars.forEach((avatar) => {
+                const data = avatar.userData;
+
+                if (isExploding) {
+                    // --- 爆炸逻辑 ---
+                    // 每一帧都沿着 explosionVelocity 飞行
+                    avatar.position.add(data.explosionVelocity);
+                    // 模拟一点阻力，让它不至于无限飞
+                    // data.explosionVelocity.multiplyScalar(0.98); 
+                } else {
+                    // --- 正常逻辑 (或回归逻辑) ---
+                    // 位置插值 (Lerp)
+                    // 这里的 animSpeed 决定了回归的速度
+                    avatar.position.lerp(data.targetPos, isExploding ? 0 : CONFIG.animSpeed);
+                    
+                    if (currentShape === 'sphere' && !isExploding) {
+                        const dir = avatar.position.clone().normalize();
+                        const dist = Math.sin(time * data.floatSpeed + data.floatPhase) * 2;
+                        avatar.position.add(dir.multiplyScalar(dist * 0.05));
+                    } else if (!isExploding) {
+                        avatar.position.y += Math.sin(time * data.floatSpeed + data.floatPhase) * 0.15;
+                    }
+                }
+
+                const nextS = THREE.MathUtils.lerp(avatar.scale.x, data.targetScale, 0.1);
+                if (nextS > 0.1) avatar.scale.set(nextS, nextS, 1);
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        window.transformShape = function(shapeName) {
+            currentShape = shapeName;
+            document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            SoundManager.playBling();
+            
+            // 切换形状时取消选中，避免连线错乱
+            selectedAvatar = null;
+            clearConnections();
+            updateAvatarScales();
+
+            const targetLayout = layouts[shapeName];
+            avatars.forEach((avatar, i) => {
+                if (targetLayout[i]) avatar.userData.targetPos.copy(targetLayout[i]);
+            });
+        };
+
+        init();
+
+    </script>
+</body>
+</html>
+
+    
