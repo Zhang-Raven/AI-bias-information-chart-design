@@ -25,7 +25,7 @@ export default function ClientLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className={`font-sans ${inter.variable} ${jetbrainsMono.variable} ${playfair.variable}`}>
         {children}
       </body>

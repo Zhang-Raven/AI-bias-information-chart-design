@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI眼中的医疗：偏见实验室</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #050505;
+            --text-color: #e0e0e0;
+            --accent-color: #2979FF; 
+            --dim-color: #222;
+            --header-color: #ffffff;
+            --font-serif: 'Merriweather', serif;
+            --font-sans: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-sans);
+            margin: 0; padding: 0; overflow-x: hidden;
+        }
+
+        /* --- 第一幕 --- */
+        #game-hero {
+            height: 100vh;
+            display: flex; flex-direction: column; 
+            justify-content: flex-start; 
+            align-items: center;
+            background: #080808; 
+            padding-top: 10vh;
+        }
+        #game-hero h2 { font-size: 1.8rem; margin-bottom: 25px; font-family: var(--font-serif); letter-spacing: 2px;}
+        .game-container { display: flex; gap: 30px; max-width: 800px; }
+        .card { cursor: pointer; transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); text-align: center; }
+        .card img { width: 220px; height: 300px; object-fit: cover; border-radius: 6px; border: 2px solid #222; transition: border-color 0.3s;}
+        .card:hover img { border-color: var(--accent-color); }
+        #game-result { margin-top: 30px; padding: 15px; font-size: 1.1rem; min-height: 50px; max-width: 600px; text-align: center; line-height: 1.5; font-weight: 600;}
+
+        /* --- 第二幕 --- */
+        .scrolly-section { position: relative; display: flex; }
+        .scrolly-text { flex-basis: 30%; padding: 0 3%; z-index: 10; position: relative; }
+        .step { min-height: 100vh; display: flex; align-items: center; opacity: 0.1; transition: opacity 0.5s; }
+        .step.active { opacity: 1; }
+        .step-content { background: rgba(10, 10, 10, 0.8); padding: 40px; border-left: 4px solid var(--accent-color); backdrop-filter: blur(5px); }
+        .step-content h3 { font-size: 2.4rem; margin-top: 0; color: #fff; font-family: var(--font-serif); }
+        .step-content p { font-size: 1.1rem; line-height: 1.6; color: #ccc; }
+
+        .scrolly-graphic { 
+            flex-basis: 70%; 
+            height: 100vh; 
+            position: sticky; 
+            top: 0; 
+            background: #000;
+            overflow: hidden;
+        }
+        .visual-container { width: 100%; height: 100%; position: relative; }
+        .ai-image { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            position: absolute; 
+            top: 0; left: 0; 
+            opacity: 0; 
+            transition: opacity 1.2s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        .ai-image.active { opacity: 1; }
+        
+        .data-card { 
+            position: absolute; 
+            bottom: 40px; 
+            right: 40px; 
+            width: 320px; 
+            background: rgba(255, 255, 255, 0.1); 
+            backdrop-filter: blur(12px); 
+            padding: 25px; 
+            border: 1px solid rgba(255,255,255,0.1); 
+            z-index: 20; 
+            border-radius: 8px; 
+        }
+        .lift-label { font-size: 1.1rem; color: #ffffff; margin-bottom: 10px; font-weight: 700; letter-spacing: 0.5px;}
+        .lift-value { font-size: 3rem; color: #fff; font-weight: 800; line-height: 1; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+
+        /* --- 第三幕 --- */
+        #data-panorama { padding: 60px 2% 40px 2%; max-width: 1200px; margin: 0 auto; min-height: 80vh; display: flex; flex-direction: column; justify-content: center;}
+        .panorama-header { text-align: center; margin-bottom: 30px; }
+        .filter-hint { color: var(--accent-color); font-size: 0.8rem; margin-top: 8px; font-weight: 600; text-transform: uppercase; }
+        .matrix-table { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+        .matrix-cols { display: grid; grid-template-columns: 40px repeat(8, 65px) 1fr; gap: 12px; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 10px;}
+        .col-label { font-size: 0.8rem; color: #fff; text-align: center; cursor: pointer; transition: 0.3s; padding: 4px; border-radius: 2px; font-weight: 700;}
+        .col-label.active { color: #fff; background: var(--accent-color); box-shadow: 0 0 15px rgba(41,121,255,0.6); }
+        .matrix-row { display: grid; grid-template-columns: 40px repeat(8, 65px) 1fr; gap: 12px; align-items: center; padding: 6px 0; transition: all 0.3s ease;}
+        .matrix-row.dimmed { opacity: 0.1; filter: grayscale(1); }
+        .row-id { color: var(--accent-color); font-weight: 700; font-size: 0.8rem; text-align: center; }
+        .cell { width: 100%; height: 26px; background: #151515; border-radius: 2px; }
+        .cell.filled { background: #eee; } 
+        .bar-wrapper { display: flex; align-items: center; gap: 15px; padding-left: 20px; }
+        .row-bar { height: 16px; background: var(--accent-color); transition: width 0.8s ease-out; border-radius: 1px; box-shadow: 0 0 8px rgba(41, 121, 255, 0.3);}
+        .lift-num { font-size: 0.8rem; font-weight: 700; color: #fff; min-width: 40px; }
+        .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+        .btn { background: #1a1a1a; color: #888; border: 1px solid #333; padding: 6px 15px; cursor: pointer; font-size: 0.75rem; transition: 0.3s; }
+        .btn.active { border-color: #fff; color: #fff; }
+
+        .footer-conclusion {
+            max-width: 1000px;
+            margin: 100px auto 150px auto;
+            text-align: center;
+            padding: 0 40px;
+        }
+        .summary-text {
+            font-size: 2.2rem;
+            line-height: 1.5;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 60px;
+            font-family: var(--font-serif);
+            letter-spacing: 1px;
+        }
+        .highlight-tag {
+            color: var(--accent-color);
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 2px;
+        }
+        .back-universe-btn {
+            background: transparent;
+            color: #fff;
+            border: 2px solid #444;
+            padding: 18px 45px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 8px; 
+            cursor: pointer;
+            transition: all 0.4s ease;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .back-universe-btn:hover {
+            border-color: var(--accent-color);
+            background: rgba(41, 121, 255, 0.1);
+            box-shadow: 0 0 25px rgba(41, 121, 255, 0.4);
+            transform: translateY(-3px);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 第一幕：修改点 1 & 2 -->
+    <section id="game-hero">
+        <h2 id="game-title">你认为谁是护士呢？</h2>
+        <div class="game-container">
+            <div class="card" onclick="checkBias(true)">
+                <img src="001medical.jpg" alt="选手 A">
+                <p style="margin-top:12px; color:#666; font-size: 0.8rem;">选手 A</p>
+            </div>
+            <div class="card" onclick="checkBias(false)">
+                <img src="002medical.jpg" alt="选手 B">
+                <p style="margin-top:12px; color:#666; font-size: 0.8rem;">选手 B</p>
+            </div>
+        </div>
+        <div id="game-result">点击上方你认为符合直觉的图像</div>
+        <div style="margin-top: 40px; color:#333; font-size:0.75rem; letter-spacing: 1px;">SCROLL TO EXPLORE DATA ↓</div>
+    </section>
+
+    <!-- 第二幕：叙事交互区 -->
+    <section class="scrolly-section">
+        <div class="scrolly-text">
+            <div class="step" data-img="img1" data-lift="1.0" data-tags='[]'>
+                <div class="step-content">
+                    <h3>01. 初始状态</h3>
+                    <p>在没有任何特定提示词修饰时，模型生成的“医疗”场景处于基准概率。</p>
+                </div>
+            </div>
+            <div class="step" data-img="img2" data-lift="5.9175" data-tags='["制服", "女性", "办公"]'>
+                <div class="step-content">
+                    <h3>02. 职业与性别</h3>
+                    <p>组合 <span style="color:var(--accent-color); font-weight:bold">女性、制服、办公室</span>。模型生成的图像固化为特定职业形象。</p>
+                </div>
+            </div>
+            <div class="step" data-img="img3" data-lift="6.2108" data-tags='["制服", "女性", "办公", "微笑"]'>
+                <div class="step-content">
+                    <h3>03. 微笑的影响</h3>
+                    <p>增加“微笑”后，概率显著提升。这表示模型将“微笑”作为判定女性医疗身份的重要权重。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 修改点 3, 4 & 5 -->
+        <div class="scrolly-graphic">
+            <div class="visual-container">
+                <img src="img_step1medical.jpg" class="ai-image active" id="img1">
+                <img src="img_step2medical.png" class="ai-image" id="img2">
+                <img src="img_step3medical.png" class="ai-image" id="img3">
+                
+                <div class="data-card">
+                    <div id="tag-container" style="min-height: 35px; margin-bottom: 15px;"></div>
+                    <div class="lift-label">Lift (关联提升倍数)：</div>
+                    <div class="lift-value" id="lift-display">1.0000</div>
+                    <div style="height:4px; background:rgba(255,255,255,0.1); margin-top:15px; border-radius:2px;">
+                        <div id="lift-bar" style="height:100%; background:var(--accent-color); width:0%; border-radius:2px; box-shadow: 0 0 10px var(--accent-color);"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 其余部分保持不变 -->
+    <section id="data-panorama">
+        <div class="panorama-header">
+            <h2 style="font-family: var(--font-serif); margin-bottom:5px;">数据全景：偏见的模式</h2>
+            <p class="filter-hint">点击表头特征可进行多维筛选</p>
+        </div>
+        <div class="controls">
+            <button class="btn active" id="btn-all" onclick="resetTable()">显示全部</button>
+            <button class="btn" id="btn-smile" onclick="quickCompare('smile')">对比：微笑偏见 (12 vs 13)</button>
+            <button class="btn" id="btn-hair" onclick="quickCompare('hair')">对比：短发偏见 (9 vs 11)</button>
+        </div>
+        <div class="matrix-cols">
+            <div class="row-id" style="color:#444">ID</div>
+            <div class="col-label" data-filter="female">女性</div>
+            <div class="col-label" data-filter="uniform">制服</div>
+            <div class="col-label" data-filter="adult">成年</div>
+            <div class="col-label" data-filter="office">办公室</div>
+            <div class="col-label" data-filter="smile">微笑</div>
+            <div class="col-label" data-filter="longHair">长发</div>
+            <div class="col-label" data-filter="shortHair">短发</div>
+            <div class="col-label" data-filter="light">明亮光线</div>
+            <div style="color:#555; font-size:0.7rem; align-self:end; padding-left:20px;">LIFT SCORE</div>
+        </div>
+        <div class="matrix-table" id="matrix-body"></div>
+    </section>
+
+    <section class="footer-conclusion">
+        <p class="summary-text">
+            在“<span class="highlight-tag">女性</span>、<span class="highlight-tag">长发</span>、<span class="highlight-tag">制服</span>、<span class="highlight-tag">微笑</span>”这些特定的前置提示词下，模型生成护士的概率大大增加。
+        </p>
+        <button class="back-universe-btn" onclick="window.location.href='#'">返回节点宇宙</button>
+    </section>
+
+    <script>
+        function checkBias(isFemale) {
+            const resultDiv = document.getElementById('game-result');
+            if(isFemale) {
+                resultDiv.innerHTML = `<span style="color:#ff4444">如果你也觉得是她，可能你已经陷入了与 AI 一样的偏见之中。</span><br><span style="font-size:0.9rem; color:#888; font-weight:normal;">模型更倾向于将女性面孔与护理工作挂钩。</span>`;
+            } else {
+                resultDiv.innerHTML = `<span style="color:var(--accent-color)">你并没有陷入固有的偏见中。</span><br><span style="font-size:0.9rem; color:#888; font-weight:normal;">他们都是护士。打破刻板印象是理解偏见的第一步。</span>`;
+            }
+            gsap.from(resultDiv, { opacity: 0, y: 5, duration: 0.4 });
+        }
+
+        const biasData = [
+            { id: 1,  female: 1, uniform: 1, adult: 0, office: 1, smile: 1, longHair: 0, shortHair: 0, light: 0, lift: 5.4225 },
+            { id: 2,  female: 0, uniform: 1, adult: 1, office: 1, smile: 1, longHair: 0, shortHair: 0, light: 0, lift: 5.0633 },
+            { id: 3,  female: 0, uniform: 1, adult: 1, office: 1, smile: 0, longHair: 1, shortHair: 0, light: 0, lift: 6.8700 },
+            { id: 4,  female: 0, uniform: 1, adult: 1, office: 1, smile: 0, longHair: 0, shortHair: 0, light: 0, lift: 3.6692 },
+            { id: 5,  female: 1, uniform: 0, adult: 0, office: 1, smile: 1, longHair: 0, shortHair: 0, light: 0, lift: 3.2575 },
+            { id: 6,  female: 1, uniform: 0, adult: 0, office: 1, smile: 0, longHair: 0, shortHair: 0, light: 0, lift: 3.0092 },
+            { id: 7,  female: 1, uniform: 0, adult: 0, office: 0, smile: 1, longHair: 0, shortHair: 1, light: 0, lift: 2.7350 },
+            { id: 8,  female: 1, uniform: 0, adult: 0, office: 0, smile: 0, longHair: 0, shortHair: 1, light: 1, lift: 2.5883 },
+            { id: 9,  female: 1, uniform: 0, adult: 0, office: 0, smile: 0, longHair: 0, shortHair: 1, light: 0, lift: 2.4225 },
+            { id: 10, female: 1, uniform: 0, adult: 0, office: 0, smile: 0, longHair: 0, shortHair: 0, light: 1, lift: 2.3025 },
+            { id: 11, female: 1, uniform: 0, adult: 0, office: 0, smile: 0, longHair: 0, shortHair: 0, light: 0, lift: 2.1633 },
+            { id: 12, female: 1, uniform: 1, adult: 0, office: 1, smile: 0, longHair: 0, shortHair: 0, light: 0, lift: 5.9175 },
+            { id: 13, female: 1, uniform: 1, adult: 0, office: 1, smile: 1, longHair: 0, shortHair: 0, light: 0, lift: 6.2108 }
+        ];
+
+        let activeFilters = new Set();
+
+        function renderMatrix() {
+            const body = document.getElementById('matrix-body');
+            body.innerHTML = '';
+            biasData.forEach(row => {
+                const rowEl = document.createElement('div');
+                rowEl.className = 'matrix-row';
+                rowEl.id = `row-${row.id}`;
+                let isMatch = true;
+                activeFilters.forEach(f => { if(row[f] !== 1) isMatch = false; });
+                if(!isMatch) rowEl.classList.add('dimmed');
+                const barWidth = Math.pow(row.lift / 6.87, 1.8) * 100;
+                rowEl.innerHTML = `
+                    <div class="row-id">${row.id}</div>
+                    <div class="cell ${row.female ? 'filled' : ''}"></div>
+                    <div class="cell ${row.uniform ? 'filled' : ''}"></div>
+                    <div class="cell ${row.adult ? 'filled' : ''}"></div>
+                    <div class="cell ${row.office ? 'filled' : ''}"></div>
+                    <div class="cell ${row.smile ? 'filled' : ''}"></div>
+                    <div class="cell ${row.longHair ? 'filled' : ''}"></div>
+                    <div class="cell ${row.shortHair ? 'filled' : ''}"></div>
+                    <div class="cell ${row.light ? 'filled' : ''}"></div>
+                    <div class="bar-wrapper">
+                        <div class="row-bar" style="width: ${barWidth}%"></div>
+                        <span class="lift-num">${row.lift.toFixed(2)}</span>
+                    </div>
+                `;
+                body.appendChild(rowEl);
+            });
+        }
+
+        document.querySelectorAll('.col-label').forEach(label => {
+            label.onclick = function() {
+                const filter = this.dataset.filter;
+                if(activeFilters.has(filter)) activeFilters.delete(filter);
+                else activeFilters.add(filter);
+                this.classList.toggle('active');
+                renderMatrix();
+            }
+        });
+
+        function quickCompare(type) {
+            resetTable();
+            document.querySelectorAll('.matrix-row').forEach(r => r.classList.add('dimmed'));
+            if(type === 'smile') {
+                document.getElementById('row-12').className = 'matrix-row highlighted';
+                document.getElementById('row-13').className = 'matrix-row highlighted';
+            } else if(type === 'hair') {
+                document.getElementById('row-9').className = 'matrix-row highlighted';
+                document.getElementById('row-11').className = 'matrix-row highlighted';
+            }
+        }
+
+        function resetTable() {
+            activeFilters.clear();
+            document.querySelectorAll('.col-label').forEach(l => l.classList.remove('active'));
+            renderMatrix();
+        }
+
+        gsap.registerPlugin(ScrollTrigger);
+        document.querySelectorAll(".step").forEach((step) => {
+            ScrollTrigger.create({
+                trigger: step, 
+                start: "top center", 
+                end: "bottom center",
+                onEnter: () => updateStep(step),
+                onEnterBack: () => updateStep(step),
+                onToggle: (self) => self.isActive ? step.classList.add("active") : step.classList.remove("active")
+            });
+        });
+
+        function updateStep(step) {
+            const imgId = step.dataset.img;
+            const lift = parseFloat(step.dataset.lift);
+            const tags = JSON.parse(step.dataset.tags);
+            
+            document.querySelectorAll('.ai-image').forEach(img => {
+                img.classList.toggle('active', img.id === imgId);
+            });
+            
+            gsap.to("#lift-display", { 
+                innerText: lift, 
+                duration: 1, 
+                snap:{innerText:0.0001}, 
+                onUpdate: function() {
+                    document.getElementById('lift-display').innerText = parseFloat(this.targets()[0].innerText).toFixed(4);
+                }
+            });
+            gsap.to("#lift-bar", { width: (lift/7)*100 + "%", duration: 1, ease: "power2.out" });
+            
+            document.getElementById('tag-container').innerHTML = tags.map(t => 
+                `<span style="background:var(--accent-color); color:#fff; padding:3px 12px; margin-right:10px; font-size:0.75rem; font-weight:bold; border-radius:4px; border: 1px solid rgba(255,255,255,0.2);">${t}</span>`
+            ).join('');
+        }
+
+        window.onload = renderMatrix;
+    </script>
+</body>
+</html>

@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据反馈回路：imSitu 偏见挖掘与反馈可视化</title>
+    <style>
+        :root {
+            --bg-color: #0a0a0a;
+            --card-bg: #141414;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-primary: #f5f5f7;
+            --text-secondary: #86868b;
+            --accent: #00d2ff; /* 冷青 */
+            --contrast: #ff8c00; /* 暖橙 */
+            --surface: #1c1c1e;
+            --font-sans: "PingFang SC", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+            --font-mono: "SF Mono", "Fira Code", "Source Code Pro", monospace;
+            --easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* 核心大卡片容器 */
+        #analysis-app {
+            width: 94vw;
+            max-width: 1100px;
+            height: 85vh;
+            background: var(--card-bg);
+            border-radius: 24px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            transition: transform 0.4s var(--easing), box-shadow 0.4s var(--easing);
+        }
+        #analysis-app:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+        }
+
+        /* --- 头部 Header --- */
+        .header {
+            padding: 24px 32px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-shrink: 0;
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+        .header-info h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+            letter-spacing: -0.01em;
+        }
+        .header-info p {
+            color: var(--text-secondary);
+            font-size: 0.88rem;
+            line-height: 1.6;
+            max-width: 700px;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 12px;
+        }
+        .segmented-control {
+            background: var(--surface);
+            padding: 3px;
+            border-radius: 8px;
+            display: flex;
+        }
+        .seg-btn {
+            padding: 5px 14px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: 0.2s;
+        }
+        .seg-btn.active {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+        .player {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+            padding: 6px 16px;
+            border-radius: 100px;
+        }
+        .player input[type=range] {
+            width: 140px;
+            accent-color: var(--accent);
+        }
+        .play-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 1rem;
+            width: 24px;
+        }
+
+        /* --- 主体 Body --- */
+        .body-content {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 32px;
+            padding: 32px;
+            overflow-y: auto;
+        }
+
+        /* 左栏：分析管线 (Analysis Pipeline) */
+        .pipeline-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle at center, rgba(0, 210, 255, 0.03) 0%, transparent 70%);
+        }
+        .pipeline-svg {
+            width: 100%;
+            height: 420px;
+        }
+        .step-node {
+            fill: var(--surface);
+            stroke: var(--border-color);
+            transition: 0.3s;
+        }
+        .step-node.active {
+            stroke: var(--accent);
+            fill: rgba(0, 210, 255, 0.08);
+        }
+        .flow-line {
+            fill: none;
+            stroke: var(--border-color);
+            stroke-width: 1.5;
+            stroke-dasharray: 4 4;
+        }
+        .flow-line.injecting {
+            stroke: var(--accent);
+            stroke-dashoffset: 20;
+            animation: dash 1s linear infinite;
+        }
+        @keyframes dash { to { stroke-dashoffset: 0; } }
+
+        .step-label {
+            font-size: 12px;
+            fill: var(--text-secondary);
+            font-weight: 500;
+        }
+        .step-label.active { fill: var(--accent); }
+
+        .snapshot-panel {
+            position: absolute;
+            top: 0; left: 0;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 11px;
+            width: 180px;
+            backdrop-filter: blur(4px);
+        }
+        .snapshot-panel h4 { color: var(--text-secondary); margin-bottom: 10px; font-size: 10px; text-transform: uppercase; }
+        .snapshot-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-family: var(--font-mono); }
+        .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+        /* 右栏：方法模块 (Method Panels) */
+        .method-panels {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .panel {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 18px;
+            border: 1px solid var(--border-color);
+        }
+        .panel-title {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .mini-chart {
+            height: 60px;
+            width: 100%;
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+        }
+        .bar { background: var(--accent); opacity: 0.2; flex: 1; transition: 0.3s var(--easing); border-radius: 2px 2px 0 0; }
+        .bar.highlight { opacity: 1; }
+
+        /* 理论界限预测 */
+        .bound-svg { width: 100%; height: 80px; margin-top: 5px; }
+        .bound-line { fill: none; stroke: var(--contrast); stroke-width: 2; stroke-dasharray: 4 2; }
+
+        /* 轮次日志网格 */
+        .round-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+        }
+        .round-cell {
+            aspect-ratio: 1.2;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            transition: 0.2s;
+        }
+        .round-cell:hover, .round-cell.active {
+            background: var(--accent);
+            color: var(--bg-color);
+            border-color: var(--accent);
+            font-weight: bold;
+        }
+
+        /* --- 底部 Footer：分层再挖掘 --- */
+        .footer {
+            padding: 24px 32px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background: rgba(20, 20, 20, 0.5);
+        }
+        .stratification-bar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .stratum-chip {
+            padding: 6px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border-color);
+            border-radius: 100px;
+            font-size: 12px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: 0.3s var(--easing);
+        }
+        .stratum-chip:hover, .stratum-chip.active {
+            border-color: var(--contrast);
+            color: var(--contrast);
+            background: rgba(255, 140, 0, 0.05);
+        }
+        .stratum-detail {
+            height: 0;
+            overflow: hidden;
+            background: rgba(255, 140, 0, 0.03);
+            border-radius: 14px;
+            transition: 0.4s var(--easing);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+        }
+        .stratum-detail.open { height: 90px; margin-top: 4px; border: 1px solid rgba(255, 140, 0, 0.1); }
+        .stratum-desc { flex: 1; font-size: 0.9rem; color: var(--text-secondary); }
+        .stratum-desc b { color: var(--contrast); margin-right: 12px; font-size: 1rem; }
+
+        /* 终端指令与输出 */
+        .repro-box {
+            position: absolute;
+            bottom: 24px;
+            right: 32px;
+            text-align: right;
+            pointer-events: none;
+        }
+        .code-pill {
+            background: #000;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: #50fa7b;
+            margin-top: 6px;
+            display: inline-block;
+            border: 1px solid rgba(80, 250, 123, 0.2);
+        }
+
+        .status-badge {
+            font-size: 9px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(0, 210, 255, 0.1);
+            color: var(--accent);
+            text-transform: uppercase;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div id="analysis-app">
+    <header class="header">
+        <div class="header-info">
+            <h1>论文复现与再挖掘：imSitu 反馈回路分析</h1>
+            <p>该研究使用机器学习方法在 imSitu 上进行了 16 轮测试挖掘偏见结构。AI 视觉标注偏见在性别维度显著放大，虽然存在动态不稳定性，但整体趋势符合界限预测理论。</p>
+        </div>
+        <div class="controls">
+            <div class="segmented-control">
+                <button class="seg-btn active" onclick="setMode('80')">80% 模型标注 (k)</button>
+                <button class="seg-btn" onclick="setMode('50')">50% 模型标注 (k)</button>
+            </div>
+            <div class="player">
+                <button class="play-btn" id="playBtn">▶</button>
+                <input type="range" id="roundSlider" min="0" max="16" value="0">
+                <span id="roundLabel" style="font-family: var(--font-mono); font-size: 13px; width: 35px; color: var(--accent);">R0</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="body-content">
+        <section class="pipeline-container">
+            <div class="snapshot-panel">
+                <h4>本轮分析记录 (Structured Log)</h4>
+                <div class="snapshot-item"><div class="dot"></div> 数据集快照: ims_v16</div>
+                <div class="snapshot-item"><div class="dot"></div> 性别占比: 0.##</div>
+                <div class="snapshot-item"><div class="dot" style="background:var(--contrast)"></div> 界限误差 Δ: 0.04</div>
+                <div class="snapshot-item"><div class="dot"></div> 训练周期: 5 Epochs</div>
+            </div>
+            
+            <svg class="pipeline-svg" viewBox="0 0 500 400">
+                <path id="loop-path" class="flow-line injecting" d="M 250,50 C 400,50 450,150 450,200 C 450,250 400,350 250,350 C 100,350 50,250 50,200 C 50,150 100,50 250,50" />
+                
+                <rect class="step-node" id="node-0" x="180" y="25" width="140" height="50" rx="10" />
+                <text x="250" y="55" text-anchor="middle" class="step-label">1. 基础池 (imSitu)</text>
+                
+                <rect class="step-node" id="node-1" x="370" y="175" width="100" height="50" rx="10" />
+                <text x="420" y="205" text-anchor="middle" class="step-label">2. 模型训练</text>
+                
+                <rect class="step-node" id="node-2" x="180" y="325" width="140" height="50" rx="10" />
+                <text x="250" y="355" text-anchor="middle" class="step-label">3. 伪标签生成 (k)</text>
+                
+                <rect class="step-node" id="node-3" x="30" y="175" width="110" height="50" rx="10" />
+                <text x="85" y="205" text-anchor="middle" class="step-label">4. 合并与评估</text>
+
+                <text x="420" y="155" text-anchor="middle" font-size="10" fill="var(--text-secondary)">模型漂移 ↑</text>
+                <text x="85" y="155" text-anchor="middle" font-size="10" fill="var(--text-secondary)">偏见日志</text>
+            </svg>
+        </section>
+
+        <section class="method-panels">
+            <div class="panel">
+                <div class="panel-title">
+                    <span>指标计算方法 (Metrics)</span>
+                    <span class="status-badge">实时计算</span>
+                </div>
+                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; font-family: var(--font-mono);">
+                    Δ 偏见 = P<sub>round_n</sub>(y|x) - P<sub>base</sub>(y|x)
+                </div>
+                <div class="mini-chart" id="metricChart">
+                    </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">界限预测 (Bound Prediction)</div>
+                <svg class="bound-svg">
+                    <path class="bound-line" d="M 0,70 Q 50,20 100,10 150,5 280,8" />
+                    <text x="10" y="22" fill="var(--contrast)" font-size="10" font-weight="bold">理论上限界限</text>
+                    <circle cx="220" cy="8" r="3" fill="var(--contrast)" />
+                </svg>
+                <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;">该预测基于 Lipschitz 常数与混合比例，表明偏差放大在长期反馈中仍具可预测性。</p>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">16 轮次实验日志 (Round Log)</div>
+                <div class="round-grid" id="roundGrid">
+                    </div>
+                <div id="roundSummary" style="margin-top: 14px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-color); padding-top: 10px;">
+                    请选择或播放轮次以查看漂移摘要。
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <div class="stratification-bar">
+            <div class="stratum-chip" onclick="showStratum(0, this)">~11 少数派坍缩</div>
+            <div class="stratum-chip" onclick="showStratum(1, this)">~30 负向漂移</div>
+            <div class="stratum-chip active" onclick="showStratum(2, this)">~50 偏见生成</div>
+            <div class="stratum-chip" onclick="showStratum(3, this)">~71 多数派锁定</div>
+            <div class="stratum-chip" onclick="showStratum(4, this)">~88 饱和状态</div>
+        </div>
+        <div id="stratumDetail" class="stratum-detail open">
+            <div class="stratum-desc">
+                <b id="stratumTitle">偏见生成 (Bias Generation)</b>
+                <span id="stratumText">在接近均衡的分布区间（~50%），模型生成的伪标签开始产生非对称偏移，打破初始平衡并逐步放大。</span>
+            </div>
+            <svg width="80" height="40" id="stratumIcon">
+                <path d="M0,35 L20,25 L40,28 L70,5" fill="none" stroke="var(--contrast)" stroke-width="2.5"/>
+            </svg>
+        </div>
+    </footer>
+
+    <div class="repro-box">
+        <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">复现指令参考</div>
+        <div class="code-pill">python image_classification/train.py -m 1000 -k 4000</div>
+    </div>
+</div>
+
+<script>
+    // 状态管理
+    let currentRound = 0;
+    let isPlaying = false;
+    let playInterval;
+
+    const strata = [
+        { title: "少数派坍缩 (Minority Collapse)", text: "极低占比的特征（~11%）在经过多轮迭代后，其特征在模型输出中彻底消失，曲线贴地。", icon: "M0,35 L70,35" },
+        { title: "负向漂移 (Negative Drift)", text: "分布逐步偏离原始基准（Baseline），向低频区间持续偏移，导致识别准确率出现线性下降。", icon: "M0,10 L70,35" },
+        { title: "偏见生成 (Bias Generation)", text: "在接近均衡的分布区间（~50%），模型生成的伪标签开始产生非对称偏移，打破初始平衡并逐步放大。", icon: "M0,35 L30,28 L70,5" },
+        { title: "多数派锁定 (Majority Lock-in)", text: "原本占优的特征（~71%）被循环强化，模型陷入局部最优，无法感知其他特征变化。", icon: "M0,8 L70,8" },
+        { title: "饱和状态 (Saturation)", text: "偏见放大达到理论饱和点（~88%），分布极度纯化，模型输出高度确定但已严重失真。", icon: "M0,35 C20,35 50,5 70,5" }
+    ];
+
+    // 初始化界面
+    const grid = document.getElementById('roundGrid');
+    const metricChart = document.getElementById('metricChart');
+    
+    for(let i=0; i<=16; i++) {
+        // 创建轮次格子
+        const cell = document.createElement('div');
+        cell.className = `round-cell ${i===0?'active':''}`;
+        cell.innerText = `R${i}`;
+        cell.onclick = () => setRound(i);
+        grid.appendChild(cell);
+
+        // 创建示意图表条
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = `${15 + (i * 5) % 85}%`;
+        metricChart.appendChild(bar);
+    }
+
+    // 更新函数
+    function setRound(r) {
+        currentRound = r;
+        document.getElementById('roundSlider').value = r;
+        document.getElementById('roundLabel').innerText = `R${r}`;
+        
+        // 更新格子高亮
+        document.querySelectorAll('.round-cell').forEach((el, idx) => {
+            el.classList.toggle('active', idx === r);
+        });
+
+        // 更新图表高亮
+        document.querySelectorAll('.bar').forEach((el, idx) => {
+            el.classList.toggle('highlight', idx <= r);
+        });
+
+        // 更新摘要
+        const summaries = [
+            "基准阶段：仅包含人类标注的 imSitu 原始分布。",
+            "初始漂移：模型开始在伪标签生成中表现出轻微偏向性。",
+            "偏见放大：k-labels 显著强化了特定性别的职业角色关联。",
+            "趋于界限：漂移速率放缓，误差处于理论界限 (Upper Bound) 预测范围内。"
+        ];
+        document.getElementById('roundSummary').innerHTML = `<span style="color:var(--accent)">轮次 R${r}：</span>${summaries[r % summaries.length]}`;
+        
+        // 管线节点动态高亮
+        const stepIdx = r % 4;
+        document.querySelectorAll('.step-node').forEach((node, idx) => {
+            node.classList.toggle('active', idx === stepIdx);
+        });
+    }
+
+    function showStratum(idx, el) {
+        document.querySelectorAll('.stratum-chip').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        
+        const detail = document.getElementById('stratumDetail');
+        detail.classList.remove('open');
+        
+        // 延迟切换以实现平滑动画
+        setTimeout(() => {
+            document.getElementById('stratumTitle').innerText = strata[idx].title;
+            document.getElementById('stratumText').innerText = strata[idx].text;
+            document.querySelector('#stratumIcon path').setAttribute('d', strata[idx].icon);
+            detail.classList.add('open');
+        }, 150);
+    }
+
+    // 播放逻辑
+    const playBtn = document.getElementById('playBtn');
+    playBtn.onclick = () => {
+        isPlaying = !isPlaying;
+        playBtn.innerText = isPlaying ? "‖" : "▶";
+        if(isPlaying) {
+            playInterval = setInterval(() => {
+                let next = (currentRound + 1) % 17;
+                setRound(next);
+            }, 700);
+        } else {
+            clearInterval(playInterval);
+        }
+    };
+
+    document.getElementById('roundSlider').oninput = (e) => {
+        setRound(parseInt(e.target.value));
+    };
+
+    function setMode(val) {
+        document.querySelectorAll('.seg-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.innerText.includes(val));
+        });
+    }
+</script>
+
+</body>
+</html>

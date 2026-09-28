@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feedback Loop Monitoring | 算法反馈环监测</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* 配色：克制的专业深色系 */
+            --bg-base: #0b0d10;
+            --bg-card: #12151a;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            
+            /* 文字颜色层级 */
+            --text-main: #f5f5f7;
+            --text-dim: #86868b;
+            --text-ghost: #424245;
+
+            /* 核心线条色：降低饱和度，增加质感 */
+            --c-empirical: #3bc9ff;
+            --c-theory: #ff9f1c;
+            --c-baseline: #2ee59d;
+
+            /* 布局常量 */
+            --max-width: 1120px;
+            --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background-color: var(--bg-base);
+            /* 微妙的环境光渐变 */
+            background-image: 
+                radial-gradient(1200px 600px at 10% -10%, rgba(59, 201, 255, 0.05), transparent 60%),
+                radial-gradient(900px 500px at 90% 0%, rgba(255, 159, 28, 0.03), transparent 55%);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "PingFang SC", "Noto Sans SC", sans-serif;
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        /* --- Header Section --- */
+        header {
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 100px 24px 60px;
+            text-align: center; /* 标题居中 */
+        }
+
+        h1 {
+            font-size: clamp(48px, 5vw, 64px); /* Typographic Scale: H1 */
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            margin: 0 auto 24px;
+            background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.7) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-desc {
+            font-size: 20px; /* 副标题字号 */
+            font-weight: 400;
+            line-height: 1.6;
+            color: var(--text-dim);
+            max-width: 60ch;
+            margin: 0 auto 48px;
+        }
+
+        .global-legend {
+            display: inline-flex;
+            gap: 32px;
+            padding: 16px 32px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; }
+        .l-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        /* --- Sticky Navigation --- */
+        .nav-sticky {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: rgba(11, 13, 16, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+        .nav-inner {
+            max-width: var(--max-width);
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+        }
+        .pill {
+            padding: 6px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-dim);
+            border-radius: 100px;
+            cursor: pointer;
+            transition: 0.2s var(--ease);
+        }
+        .pill:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+        .pill.active { color: var(--bg-base); background: var(--text-main); }
+
+        /* --- Content Layout --- */
+        #main-container {
+            max-width: var(--max-width);
+            margin: 60px auto 120px;
+            padding: 0 24px;
+        }
+
+        .interval-section {
+            margin-bottom: 100px;
+            scroll-margin-top: 100px;
+        }
+
+        .section-header {
+            margin-bottom: 32px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+        }
+        .section-header h2 {
+            font-size: 32px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.01em;
+        }
+        .section-header p {
+            color: var(--text-ghost);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            margin: 0;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 28px;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s var(--ease);
+        }
+        .chart-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+
+        .card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .card-tag {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-ghost);
+        }
+
+        /* --- D3 Chart Elements --- */
+        .axis text { fill: var(--text-ghost); font-family: 'JetBrains Mono'; font-size: 10px; }
+        .axis line, .axis path { stroke: var(--border); }
+        .grid line { stroke: var(--border); stroke-opacity: 0.5; }
+
+        .line-empirical { fill: none; stroke: var(--c-empirical); stroke-width: 2.5; stroke-linecap: round; }
+        .line-theory { fill: none; stroke: var(--c-theory); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.6; }
+        .line-baseline { stroke: var(--c-baseline); stroke-width: 1; stroke-dasharray: 4 4; stroke-opacity: 0.4; }
+        .baseline-label { fill: var(--c-baseline); font-size: 10px; opacity: 0.7; font-weight: 500; }
+
+        /* Tooltip Style */
+        #tooltip {
+            position: absolute;
+            background: rgba(18, 21, 26, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-hover);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 13px;
+            pointer-events: none;
+            display: none;
+            z-index: 2000;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        .tt-round { font-weight: 600; color: var(--text-main); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+        .tt-row { display: flex; justify-content: space-between; gap: 20px; margin: 4px 0; }
+        .tt-val { font-family: 'JetBrains Mono'; font-weight: 500; }
+
+        /* Upload Placeholder */
+        #upload-area {
+            max-width: var(--max-width);
+            margin: 40px auto;
+            padding: 80px;
+            border: 2px dashed var(--border);
+            border-radius: 24px;
+            text-align: center;
+            display: none;
+        }
+        .upload-btn {
+            background: var(--text-main);
+            color: var(--bg-base);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            display: inline-block;
+        }
+
+        @media (max-width: 900px) {
+            .charts-grid { grid-template-columns: 1fr; }
+        }
+
+        body.embed header,
+        body.embed nav {
+            display: none;
+        }
+
+        body.embed #main-container {
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Algorithmic Feedback Loops</h1>
+        <p class="hero-desc">
+            监测迭代训练中的偏见放大。当模型使用自身的预测作为标签时，性别比例预测会逐渐偏离真实基准，展示出少数类塌缩或偏见生成的演变轨迹。
+        </p>
+        <div class="global-legend">
+            <div class="legend-item"><div class="l-dot" style="background:var(--c-empirical)"></div> Empirical Mean</div>
+            <div class="legend-item"><div class="l-dot" style="background:var(--c-theory)"></div> Theory Bound</div>
+            <div class="legend-item"><div class="l-dot" style="background:var(--c-baseline)"></div> Baseline</div>
+        </div>
+    </header>
+
+    <nav class="nav-sticky">
+        <div id="nav-inner" class="nav-inner"></div>
+    </nav>
+
+    <div id="upload-area">
+        <p style="color:var(--text-dim)">未检测到本地数据。请上传 <strong>plot_source_data.csv</strong></p>
+        <label class="upload-btn">
+            选择文件 <input type="file" id="csv-input" accept=".csv" style="display:none">
+        </label>
+    </div>
+
+    <main id="main-container"></main>
+    <div id="tooltip"></div>
+
+    <script>
+        const CONFIG = {
+            width: 500,
+            height: 320,
+            margin: {top: 20, right: 65, bottom: 40, left: 50},
+            labels: {
+                0: "11% Minority Collapse",
+                1: "30% Negative Drift",
+                2: "50% Bias Generation",
+                3: "71% Majority Growth",
+                4: "88% Saturation Lock-in"
+            }
+        };
+
+        const params = new URLSearchParams(window.location.search);
+        const embedMode = params.get("embed") === "1";
+        const intervalParam = params.get("interval");
+        const intervalFilter = intervalParam
+            ? intervalParam.split(',').map(d => parseInt(d, 10)).filter(n => !Number.isNaN(n))
+            : [];
+        const settingParam = params.get("setting");
+        const settingFilter = settingParam !== null ? [parseInt(settingParam, 10)] : [];
+
+        if (embedMode) {
+            document.body.classList.add("embed");
+        }
+
+        let tooltip = d3.select("#tooltip");
+
+        async function init() {
+            try {
+                const data = await d3.csv("plot_source_data.csv");
+                render(data);
+            } catch (e) {
+                d3.select("#upload-area").style("display", "block");
+                d3.select("#csv-input").on("change", function(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const csvData = d3.csvParse(event.target.result);
+                        d3.select("#upload-area").style("display", "none");
+                        render(csvData);
+                    };
+                    reader.readAsText(file);
+                });
+            }
+        }
+
+        function render(data) {
+            data.forEach(d => {
+                d.Round = +d.Round;
+                d.Empirical_Mean = +d.Empirical_Mean;
+                d.Theory_Value = +d.Theory_Value;
+                d.Baseline = +d.Baseline;
+                d.Plot_Interval_Index = +d.Plot_Interval_Index;
+            });
+
+            let intervals = d3.groups(data, d => d.Plot_Interval_Index).sort((a,b) => a[0] - b[0]);
+            if (intervalFilter.length > 0) {
+                const allowed = new Set(intervalFilter);
+                intervals = intervals.filter(([idx]) => allowed.has(idx));
+            }
+            if (settingFilter.length > 0 && !Number.isNaN(settingFilter[0])) {
+                // 0: 80% Model, 1: 50% Model
+                const settingKeys = ["80% Model (m=1000, k=4000)", "50% Model (m=2500, k=2500)"];
+                const settingKey = settingKeys[settingFilter[0]];
+                intervals = intervals.map(([idx, groupData]) => [idx, groupData.filter(d => d.Setting === settingKey)]);
+            }
+            const container = d3.select("#main-container");
+            const nav = d3.select("#nav-inner");
+
+            intervals.forEach(([idx, groupData]) => {
+                const label = CONFIG.labels[idx] || `Interval ${idx}`;
+                const rowId = `section-${idx}`;
+
+                if (!embedMode) {
+                    nav.append("div")
+                        .attr("class", "pill")
+                        .text(label.split(' ')[1] || label.split(' ')[0])
+                        .on("click", () => {
+                            window.scrollTo({ top: document.getElementById(rowId).offsetTop - 80, behavior: 'smooth' });
+                        });
+                }
+
+                const section = container.append("div").attr("class", "interval-section").attr("id", rowId);
+                if (!embedMode) {
+                    const header = section.append("div").attr("class", "section-header");
+                    header.append("h2").text(label);
+                    header.append("p").text(`Source Index: 0${idx}`);
+                }
+
+                const grid = section.append("div").attr("class", "charts-grid");
+
+                const settings = [
+                    { key: "80% Model (m=1000, k=4000)", label: "Model-Labeled: 80%" },
+                    { key: "50% Model (m=2500, k=2500)", label: "Model-Labeled: 50%" }
+                ];
+
+                settings.forEach(s => {
+                    const chartData = groupData.filter(d => d.Setting === s.key).sort((a,b) => a.Round - b.Round);
+                    if(chartData.length > 0) drawChart(grid, chartData, s.label);
+                });
+            });
+
+            if (!embedMode) {
+                // Scroll Spy for Nav
+                window.addEventListener('scroll', () => {
+                    let current = "";
+                    intervals.forEach(([idx]) => {
+                        const el = document.getElementById(`section-${idx}`);
+                        if (window.pageYOffset >= el.offsetTop - 150) current = idx;
+                    });
+                    d3.selectAll(".pill").classed("active", function() {
+                        const label = CONFIG.labels[current];
+                        return d3.select(this).text() === (label ? (label.split(' ')[1] || label.split(' ')[0]) : "");
+                    });
+                });
+            }
+        }
+
+        function drawChart(container, data, title) {
+            const card = container.append("div").attr("class", "chart-card");
+            card.append("div").attr("class", "card-meta")
+                .html(`<span class="card-tag">${title}</span><span style="font-family:'JetBrains Mono'; font-size:10px; color:var(--text-ghost)">R0—R16</span>`);
+
+            const svg = card.append("svg")
+                .attr("width", "100%")
+                .attr("height", CONFIG.height)
+                .attr("viewBox", `0 0 ${CONFIG.width} ${CONFIG.height}`);
+
+            const g = svg.append("g").attr("transform", `translate(${CONFIG.margin.left},${CONFIG.margin.top})`);
+            const innerW = CONFIG.width - CONFIG.margin.left - CONFIG.margin.right;
+            const innerH = CONFIG.height - CONFIG.margin.top - CONFIG.margin.bottom;
+
+            const x = d3.scaleLinear().domain([0, 16]).range([0, innerW]);
+            const yMin = Math.min(d3.min(data, d => d.Empirical_Mean), d3.min(data, d => d.Theory_Value), data[0].Baseline) - 5;
+            const yMax = Math.max(d3.max(data, d => d.Empirical_Mean), d3.max(data, d => d.Theory_Value), data[0].Baseline) + 5;
+            const y = d3.scaleLinear().domain([yMin, yMax]).range([innerH, 0]).nice();
+
+            // Axes & Grid
+            g.append("g").attr("transform", `translate(0,${innerH})`).attr("class", "axis").call(d3.axisBottom(x).ticks(8).tickSize(0).tickPadding(12));
+            g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5).tickSize(-innerW).tickPadding(12));
+
+            // Baseline
+            const bsl = data[0].Baseline;
+            g.append("line").attr("class", "line-baseline").attr("x1", 0).attr("x2", innerW).attr("y1", y(bsl)).attr("y2", y(bsl));
+            g.append("text").attr("class", "baseline-label").attr("x", innerW + 8).attr("y", y(bsl) + 3).text(`BSL ${bsl.toFixed(1)}%`);
+
+            // Lines
+            const lineEmp = d3.line().x(d => x(d.Round)).y(d => y(d.Empirical_Mean)).curve(d3.curveMonotoneX);
+            const lineTheo = d3.line().x(d => x(d.Round)).y(d => y(d.Theory_Value)).curve(d3.curveMonotoneX);
+
+            g.append("path").datum(data).attr("class", "line-theory").attr("d", lineTheo);
+            const pathEmp = g.append("path").datum(data).attr("class", "line-empirical").attr("d", lineEmp);
+
+            // Entry Animation
+            const len = pathEmp.node().getTotalLength();
+            pathEmp.attr("stroke-dasharray", len + " " + len).attr("stroke-dashoffset", len)
+                   .transition().duration(1500).ease(d3.easeCubicOut).attr("stroke-dashoffset", 0);
+
+            // Interaction Layer
+            const focus = g.append("circle").attr("r", 5).attr("fill", "#fff").attr("stroke", varProp("--c-empirical")).attr("stroke-width", 2).style("opacity", 0);
+
+            g.append("rect")
+                .attr("width", innerW).attr("height", innerH).attr("fill", "transparent")
+                .on("mousemove", function(event) {
+                    const [mx] = d3.pointer(event);
+                    const round = Math.round(x.invert(mx));
+                    const d = data.find(i => i.Round === round);
+                    if (d) {
+                        focus.attr("cx", x(d.Round)).attr("cy", y(d.Empirical_Mean)).style("opacity", 1);
+                        tooltip.style("display", "block")
+                            .style("left", (event.pageX + 20) + "px")
+                            .style("top", (event.pageY - 20) + "px")
+                            .html(`
+                                <div class="tt-round">Round ${d.Round}</div>
+                                <div class="tt-row"><span style="color:var(--text-dim)">Empirical</span><span class="tt-val" style="color:var(--c-empirical)">${d.Empirical_Mean.toFixed(2)}%</span></div>
+                                <div class="tt-row"><span style="color:var(--text-dim)">Theory</span><span class="tt-val" style="color:var(--c-theory)">${d.Theory_Value.toFixed(2)}%</span></div>
+                                <div class="tt-row"><span style="color:var(--text-dim)">Baseline</span><span class="tt-val" style="color:var(--c-baseline)">${d.Baseline.toFixed(2)}%</span></div>
+                            `);
+                    }
+                })
+                .on("mouseout", () => { focus.style("opacity", 0); tooltip.style("display", "none"); });
+        }
+
+        function varProp(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+        init();
+    </script>
+</body>
+</html>
